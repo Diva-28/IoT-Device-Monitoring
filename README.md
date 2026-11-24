@@ -24,16 +24,6 @@ Reveal before failure. PHAEMOS is an open industrial IoT platform for predictive
 - **Resilient at the edge.** A Rust gateway beside the machines reads a node's serial output, spools every reading to disk during a network outage and sends it on once the link returns, so nothing is lost.
 - **Tools for developers.** A Python SDK, a simulator with injectable faults and a Go CLI for load testing.
 
-## The name
-
-PHAEMOS, pronounced FAY-mos, is coined from two Ancient Greek roots.
-
-| Part | Root | Meaning |
-| --- | --- | --- |
-| PHAE- | *phaen-* (φαιν-), as in *phaínein* | to reveal, to bring to light, the root behind *phenomenon* |
-| -MOS | *-mos*, as in *kósmos* (κόσμος) | system or order |
-
-Together they mean "an ordered system that reveals". The platform learns the normal order of each machine and reveals the readings that break it before they become a failure, which is where the tagline comes from: **reveal before failure**. The sister project [MELOPHOS](https://github.com/melophos) is named the same way.
 
 ## Architecture
 
