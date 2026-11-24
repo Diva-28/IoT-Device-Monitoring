@@ -1,0 +1,18 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Roadmap
+    url: https://github.com/orgs/phaemos/projects/1
+    about: What is planned and in which order, before opening a feature request.
+  - name: Questions and discussion
+    url: https://github.com/phaemos/phaemos/discussions
+    about: Setup questions, usage questions and feature ideas.
+  - name: Security vulnerability
+    url: https://github.com/phaemos/phaemos/security/policy
+    about: Report privately following SECURITY.md, never a public issue.
+  - name: Contact
+    url: https://github.com/phaemos/phaemos/blob/main/SUPPORT.md
+    about: Email addresses and every other way to reach the project.
+  - name: AI policy
+    url: https://github.com/phaemos/.github/blob/main/AI_POLICY.md
+    about: How AI may and may not be used in issues and pull requests here.

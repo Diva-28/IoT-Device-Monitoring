@@ -1,0 +1,15 @@
+title: "[Idea] "
+labels: ["idea"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What would make monitoring machines or building on PHAEMOS better?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Who it helps
+      description: The problem it solves and who runs into it.

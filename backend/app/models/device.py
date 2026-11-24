@@ -1,0 +1,37 @@
+import uuid
+# column and the type classes (String, DateTime, etc.) describe the shape of each DB column
+from sqlalchemy import Column, ForeignKey, String, DateTime, func
+# UUID is imported from the PostgreSQL dialect because it's a Postgres-specific column type
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
+
+from app.db import Base
+
+
+# inheriting from Base registers this class with SQLAlchemy's ORM metadata
+class Device(Base):
+    # __tablename__ tells SQLAlchemy which database table this class maps to
+    __tablename__ = "devices"
+
+    # UUID(as_uuid=True) makes SQLAlchemy return Python uuid.UUID objects instead of raw strings
+    # default=uuid.uuid4 means a new UUID is generated in Python before the row is inserted
+    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # nullable=False enforces a NOT NULL constraint at the database level
+    name       = Column(String(100), nullable=False)
+    # no nullable=False means this column is optional - the device may not have a location yet
+    location   = Column(String(100))
+    type       = Column(String(50))          # esp32 / arduino / stm32
+    # unique=True adds a UNIQUE constraint so no two devices can share the same API key
+    api_key    = Column(String(255), unique=True, nullable=False)
+    status            = Column(String(20), default="offline")  # online/offline/warning/fault
+    firmware_version  = Column(String(50))   # set when device downloads or reports its OTA version
+    # timezone=True stores the timestamp as UTC in the DB, preventing timezone confusion
+    last_seen  = Column(DateTime(timezone=True))
+    # server_default=func.now() lets the database set the timestamp, which is more reliable
+    # than relying on application-side time (avoids clock-skew issues between app and DB servers)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # keep owner_id nullable so existing unowned devices are valid and technicians
+    # can see them (unowned = shared/unassigned, not hidden).
+    owner_id   = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # use a PostgreSQL ARRAY column rather than a join table because the tag set is
+    # small and querying with `tag = ANY(tags)` is fast with a GIN index at this scale.
+    tags       = Column(ARRAY(String), server_default="{}", nullable=False)

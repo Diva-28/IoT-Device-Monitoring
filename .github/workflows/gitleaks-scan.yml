@@ -1,0 +1,48 @@
+# gitleaks secret scanning - runs on every push to main and every pull request.
+#
+# scans the working tree for hard-coded credentials, API keys and secrets.
+# exits with code 1 if any leak is found, failing the workflow.
+#
+# the gitleaks binary is installed directly rather than via the action wrapper
+# to avoid requiring a paid licence for SARIF upload on private repositories.
+#
+# the action used for checkout is pinned to a full commit SHA to prevent
+# supply-chain attacks via mutable tags.
+
+name: Gitleaks Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# least-privilege token - read-only access to repository contents
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+
+    steps:
+      # checkout the repository content for scanning
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # download a pinned gitleaks binary from the official releases page.
+      # extracting to /tmp first then moving to /usr/local/bin avoids
+      # writing directly to a privileged directory from a pipe.
+      - name: Install Gitleaks
+        run: |
+          curl -sSfL --retry 6 --retry-all-errors --retry-delay 10 --max-time 120 \
+            -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz"
+          tar -xz -C /tmp -f /tmp/gitleaks.tar.gz gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+
+      # scan working tree files only (--no-git) for hard-coded credentials.
+      # --redact masks the actual secret value in output to avoid logging it.
+      - name: Run Gitleaks
+        run: gitleaks detect --no-git --redact --exit-code=1

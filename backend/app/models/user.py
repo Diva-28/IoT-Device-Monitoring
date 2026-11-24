@@ -1,0 +1,51 @@
+import uuid
+from sqlalchemy import BigInteger, Boolean, Column, JSON, String, DateTime, Integer, func
+from sqlalchemy.dialects.postgresql import UUID
+
+from app.db import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    # UUID4 is randomly generated, ensuring uniqueness across distributed systems
+    # and preventing enumeration attacks (sequential IDs let attackers guess valid IDs)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100))
+    # unique=True enforces that no two accounts can share the same email at the DB level
+    email = Column(String(150), unique=True, nullable=False)
+    # the plain-text password is never stored - only its bcrypt hash,
+    # so a DB leak doesn't expose real passwords. Nullable to support
+    # OAuth users who authenticate via Google/GitHub and have no password.
+    password_hash = Column(String(255), nullable=True)
+    # default is "viewer" for security: a newly created or compromised account gets
+    # the least privilege; only admins can elevate a role to technician or admin
+    role = Column(String(20), default="viewer")  # admin / technician / viewer
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login = Column(DateTime(timezone=True))
+    # track consecutive failed attempts so the account can be locked after 5 failures
+    # and prevent brute-force attacks without rate-limiting every single request.
+    failed_login_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+
+    # OAuth - set when a user signs in via Google or GitHub instead of a password
+    oauth_provider = Column(String(50), nullable=True)   # "google" | "github" | "microsoft" | None
+    oauth_id       = Column(String(200), nullable=True)  # provider's user sub/id
+
+    # profile - phone number for SMS alert delivery (Step 20g)
+    phone_number = Column(String(30), nullable=True)
+
+    # TOTP 2FA - secret stored encrypted-at-rest by the DB; flag tracks enrolment state
+    totp_secret  = Column(String(64), nullable=True)
+    totp_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    # the last accepted TOTP time step, so a one-time code is never accepted twice.
+    totp_last_step = Column(BigInteger, nullable=True)
+
+    # every token carries this number. Raising it ends all of the user's
+    # sessions, for example after a password or two-factor change.
+    token_version = Column(Integer, nullable=False, default=0, server_default="0")
+
+    # granular RBAC overrides - JSON dict of per-user capability flags and device scope.
+    # NULL means "use role defaults only". Non-null entries take precedence over the role
+    # so admins can grant a technician limited extra capabilities without a full role change.
+    permissions = Column(JSON, nullable=True)

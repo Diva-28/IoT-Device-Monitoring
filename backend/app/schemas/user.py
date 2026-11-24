@@ -1,0 +1,144 @@
+import re
+from datetime import datetime
+from typing import Any, Literal
+from uuid import UUID
+from pydantic import BaseModel, EmailStr, field_validator
+
+
+# --- UserRegister ---
+# payload for POST /auth/register; password is stored hashed - never plain-text in the DB.
+class UserRegister(BaseModel):
+    name:     str
+    email:    EmailStr
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        # enforce a minimum bar here so weak passwords never reach the DB.
+        # rules: 8+ chars, at least one uppercase letter, at least one digit.
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        # bcrypt only hashes the first 72 bytes, so anything longer is
+        # rejected here rather than silently truncated.
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+
+# --- UserLogin ---
+# kept separate from UserRegister so login does not accidentally accept a `name` field.
+class UserLogin(BaseModel):
+    email:    EmailStr
+    password: str
+
+
+# --- UserUpdate ---
+# fields the user may update on their own profile; all optional for partial updates.
+class UserUpdate(BaseModel):
+    name:         str | None = None
+    email:        EmailStr | None = None
+    phone_number: str | None = None
+
+
+# --- ChangePassword ---
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        # bcrypt only hashes the first 72 bytes, so anything longer is
+        # rejected here rather than silently truncated.
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+
+# --- UserResponse ---
+# what the API sends back after login or profile fetch - notably, password is NOT included.
+class UserResponse(BaseModel):
+    id:    UUID
+    # name can be NULL if the user registered without providing one (e.g. via OAuth).
+    name:  str | None
+    # email stays as plain `str` here because we only need to output it, not re-validate format.
+    email: str
+    # role drives authorization checks (e.g. "admin" vs "viewer"); stored as a string for flexibility.
+    role:           str
+    created_at:     datetime | None = None
+    phone_number:   str | None = None
+    oauth_provider: str | None = None
+    permissions:    dict[str, Any] | None = None
+    totp_enabled:   bool = False
+
+    # allows Pydantic to convert a SQLAlchemy User ORM object directly into this schema.
+    model_config = {"from_attributes": True}
+
+
+# --- TokenResponse ---
+# returned after a successful login; the client stores access_token and sends it in the Authorization header.
+class TokenResponse(BaseModel):
+    access_token: str
+    # hardcoded default of "bearer" matches the OAuth 2.0 spec - clients expect exactly this string.
+    token_type:   str = "bearer"
+
+
+# --- LoginResponse ---
+# a finished sign-in returns an access token. An account with two-factor
+# authentication gets mfa_required and a short-lived mfa_token instead, which
+# only POST /auth/2fa/verify accepts.
+class LoginResponse(BaseModel):
+    access_token: str | None = None
+    token_type:   str = "bearer"
+    mfa_required: bool = False
+    mfa_token:    str | None = None
+
+
+# --- TotpVerify ---
+# body for POST /auth/2fa/verify. mfa_token may be left out after an OAuth
+# sign-in, which sets it as a cookie instead.
+class TotpVerify(BaseModel):
+    code:      str
+    mfa_token: str | None = None
+
+
+# --- InviteCreate ---
+# body for POST /auth/invite (admin creates an invite for a new user).
+class InviteCreate(BaseModel):
+    email: EmailStr
+    # only the three real roles, so an invite can never mint an unknown one.
+    role:  Literal["admin", "technician", "viewer"] = "viewer"
+
+
+# --- AcceptInvite ---
+# body for POST /auth/accept-invite (invitee sets their password to activate the account).
+class AcceptInvite(BaseModel):
+    token:    str
+    name:     str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        # bcrypt only hashes the first 72 bytes, so anything longer is
+        # rejected here rather than silently truncated.
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v

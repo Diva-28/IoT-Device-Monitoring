@@ -1,0 +1,65 @@
+# publishes each component folder to its own read-only repository.
+# git subtree split and the author rewrite are both deterministic, so every
+# publish is a fast-forward.
+# the copies credit the automation account, since the monorepo is where each
+# change is reviewed and attributed; messages and dates stay as they are.
+
+name: Publish components
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-components
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.folder }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        folder: [backend, frontend, firmware, hardware, infra, client, edge, discord]
+    steps:
+      - name: Check for the publishing token
+        id: token
+        env:
+          SPLIT_TOKEN: ${{ secrets.SPLIT_TOKEN }}
+        run: |
+          if [ -n "$SPLIT_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "SPLIT_TOKEN is not set, nothing was published" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.token.outputs.present == 'true'
+        with:
+          # the latest main rather than the pushed commit, so a late push event never publishes stale history.
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Split and push
+        if: steps.token.outputs.present == 'true'
+        env:
+          SPLIT_TOKEN: ${{ secrets.SPLIT_TOKEN }}
+          FOLDER: ${{ matrix.folder }}
+          FILTER_BRANCH_SQUELCH_WARNING: "1"
+        run: |
+          git subtree split --prefix="$FOLDER" --branch "publish-$FOLDER"
+          git filter-branch --env-filter '
+            if [ "$GIT_AUTHOR_EMAIL" = "code@isaacadjei.me" ]; then
+              export GIT_AUTHOR_NAME="Zac Bot" GIT_AUTHOR_EMAIL="automation@isaacadjei.me"
+            fi
+            if [ "$GIT_COMMITTER_EMAIL" = "code@isaacadjei.me" ]; then
+              export GIT_COMMITTER_NAME="Zac Bot" GIT_COMMITTER_EMAIL="automation@isaacadjei.me"
+            fi
+          ' "publish-$FOLDER"
+          # the copies are read-only mirrors of this history, so the push replaces their main
+          # outright: after a rewrite here the split commits change too and a plain push is refused
+          git push --force "https://x-access-token:${SPLIT_TOKEN}@github.com/phaemos/${FOLDER}.git" "publish-$FOLDER:main"

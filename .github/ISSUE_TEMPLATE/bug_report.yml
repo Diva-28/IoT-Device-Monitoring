@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in PHAEMOS does not work as documented.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Backend (API, alerts, tickets, anomaly scoring)
+        - Frontend (dashboard and public pages)
+        - Firmware (ESP32, STM32, Arduino Nano or Pico 2W)
+        - Hardware (wiring, schematics, PCBs)
+        - Edge gateway
+        - Client (SDK, simulator or CLI)
+        - Infra (Docker, monitoring, SQL)
+        - Discord (server setup script)
+        - Docs
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, including any error message or log output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the stack with make dev
+        2. Register a device and post a reading
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit or release, operating system and browser, plus the board if it involves hardware.
+      placeholder: main at 1a2b3c4, macOS 15, Chrome 130, ESP32 DevKit V1
+  - type: dropdown
+    id: ai-use
+    attributes:
+      label: AI use
+      description: "Required. Did AI help you find, test or check this? Write the title and description yourself either way. See the [AI policy](https://github.com/phaemos/.github/blob/main/AI_POLICY.md). Dictation, translation and spelling tools do not count."
+      options:
+        - No AI was used
+        - "Yes: AI helped me find, test or check it"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for this problem.
+          required: true
+        - label: I have read the [Code of Conduct](https://github.com/phaemos/phaemos/blob/main/CODE_OF_CONDUCT.md).
+          required: true

@@ -1,0 +1,237 @@
+# CI pipeline - runs on every push to main and every pull request targeting main.
+#
+# jobs:
+#   backend-lint  - installs Python deps and runs ruff for style and error checks
+#   frontend-check - installs Node deps, runs ESLint and performs a production build
+#   client-python  - ruff, mypy and pytest for the Python SDK and simulator
+#   client-go      - gofmt, vet and tests for phaemosctl
+#   edge           - rustfmt, clippy and tests for the edge gateway
+#
+# third-party actions are pinned to a full commit SHA to prevent a mutable tag
+# (e.g. @v4) from silently updating to malicious code (supply-chain hardening).
+#
+# GITHUB_TOKEN is scoped to the minimum required permissions for each job.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# default: no permissions - each job declares only what it needs.
+permissions: {}
+
+jobs:
+  # ── Backend lint ─────────────────────────────────────────────────────────────
+  backend-lint:
+    name: Backend lint (ruff)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read # needed to checkout the repository
+
+    steps:
+      # checkout the repository source code
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # set up Python 3.12 matching the production runtime
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      # install ruff for fast Python linting - not a full requirements install
+      # because we only need the linter, not every runtime dependency
+      - name: Install ruff
+        run: pip install ruff==0.4.4
+
+      # run ruff against the backend source tree.
+      # exits with a non-zero code if any rule fires, failing the job.
+      - name: Lint backend
+        run: ruff check backend/
+
+  # ── Backend tests ────────────────────────────────────────────────────────────
+  backend-test:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+    needs: backend-lint  # only run tests if lint passes
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      # pull the image explicitly so transient Docker Hub timeouts can be retried.
+      # service containers start before any steps and cannot be retried on failure.
+      - name: Pull PostgreSQL image
+        run: |
+          for i in 1 2 3 4 5; do
+            docker pull postgres:15 && break
+            echo "Pull attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
+
+      - name: Start PostgreSQL
+        run: |
+          docker run -d \
+            --name postgres \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=password \
+            -e POSTGRES_DB=phaemos_test \
+            -p 5432:5432 \
+            postgres:15
+          until docker exec postgres pg_isready -U postgres; do sleep 1; done
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run tests
+        working-directory: backend
+        run: pytest tests/ --cov=app --cov-report=term-missing -v
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/phaemos_test
+          SECRET_KEY: ci-test-secret-key-not-for-production
+          REDIS_URL: redis://localhost:6379
+
+  # ── Frontend check ───────────────────────────────────────────────────────────
+  frontend-check:
+    name: Frontend lint and build (Next.js)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read # needed to checkout the repository
+
+    steps:
+      # checkout the repository source code
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # set up Node 24 LTS with npm cache for faster installs. Node 24 runs the
+      # TypeScript unit tests directly through its built-in type stripping.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # clean install from package-lock.json for a deterministic dependency tree
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # run ESLint - fails if any error-level rule fires
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      # run the unit tests, which cover the telemetry WebSocket URL
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      # run the Next.js production build to catch TypeScript errors and broken imports.
+      # environment variables that the build references are set as placeholders -
+      # real values are not needed for a build-only check.
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://placeholder
+
+  # ── Client: Python SDK and simulator ─────────────────────────────────────────
+  client-python:
+    name: Client Python (ruff, mypy, pytest)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: client/python
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint and type-check
+        run: |
+          ruff check .
+          ruff format --check .
+          mypy
+
+      - name: Test
+        run: pytest
+
+  # ── Client: phaemosctl ───────────────────────────────────────────────────────
+  client-go:
+    name: Client Go (vet, test)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: client/go
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: client/go/go.mod
+          cache: false
+
+      # gofmt -l prints unformatted files, so any output fails the job
+      - name: Format check
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go test ./...
+
+  # ── Edge gateway ─────────────────────────────────────────────────────────────
+  edge:
+    name: Edge (clippy, test)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: edge
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Lint and test
+        run: |
+          rustup component add rustfmt clippy
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
